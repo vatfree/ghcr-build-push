@@ -71,6 +71,18 @@ inputs:
     description: 'Porter auth token'
     required: false
     default: ''
+  cache:
+    description: 'If "true", cache Docker build layers in the GitHub Actions cache backend (type=gha). Skips reinstalling dependencies when only source code changes.'
+    required: false
+    default: 'true'
+  cache_scope:
+    description: 'Scope for the GHA layer cache. Defaults to the app/image name so multiple images in one workflow do not collide.'
+    required: false
+    default: ''
+  cache_mode:
+    description: 'GHA cache mode passed to docker/build-push-action. "min" caches only the final layers (fastest); "max" also caches intermediate layers (recommended when Dockerfiles change often).'
+    required: false
+    default: 'max'
 
 runs:
   using: 'composite'
@@ -109,11 +121,16 @@ runs:
         else
           TREE_HASH=$(git rev-parse "HEAD:${TREE_REF}" | cut -c1-12)
         fi
+        CACHE_SCOPE=$(echo "${{ inputs.cache_scope }}" | tr '[:upper:]' '[:lower:]')
+        if [ -z "${CACHE_SCOPE}" ]; then
+          CACHE_SCOPE="${REPO}"
+        fi
         echo "IMAGE_URL=ghcr.io/${{ github.repository_owner }}/${REPO}:${SHA_PREFIX}" >> $GITHUB_ENV
         echo "IMAGE_URL_TREE=ghcr.io/${{ github.repository_owner }}/${REPO}:${TREE_HASH}" >> $GITHUB_ENV
         echo "IMAGE_URL_LATEST=ghcr.io/${{ github.repository_owner }}/${REPO}:latest" >> $GITHUB_ENV
         echo "IMAGE_URL_BRANCH=ghcr.io/${{ github.repository_owner }}/${REPO}:${REF}" >> $GITHUB_ENV
         echo "TREE_HASH=${TREE_HASH}" >> $GITHUB_ENV
+        echo "cache_scope=${CACHE_SCOPE}" >> $GITHUB_OUTPUT
         echo "::notice::Tree hash: ${TREE_HASH}"
 
     - name: Check if image already exists for this tree hash
@@ -148,6 +165,8 @@ runs:
         push: true
         tags: ${{ env.IMAGE_URL }},${{ env.IMAGE_URL_TREE }},${{ env.IMAGE_URL_LATEST }},${{ env.IMAGE_URL_BRANCH }}
         platforms: ${{ inputs.platforms }}
+        cache-from: ${{ inputs.cache == 'true' && format('type=gha,scope={0}', steps.preset.outputs.cache_scope) || '' }}
+        cache-to: ${{ inputs.cache == 'true' && format('type=gha,mode={0},scope={1}', inputs.cache_mode, steps.preset.outputs.cache_scope) || '' }}
         build-args: |
           PUBLISH_PACKAGE_TOKEN=${{ inputs.publish_package_token }}
           ${{ inputs.extra_build_args }}
