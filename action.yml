@@ -4,8 +4,9 @@ author: 'vatfree'
 
 inputs:
   app_name:
-    description: 'Application name used as the image name and in deploy commands'
-    required: true
+    description: 'Application name. Used as the image label and as the Porter app to update on master. Required only when porter_token is set.'
+    required: false
+    default: ''
   dockerfile_path:
     description: 'Path to the Dockerfile relative to the build context'
     required: false
@@ -36,10 +37,6 @@ inputs:
     default: ''
   dokploy_url:
     description: 'If set, a GET request to this URL is fired on staging builds to trigger a Dokploy redeploy'
-    required: false
-    default: ''
-  porter_app_name:
-    description: 'If set, runs `porter app update-tag <name>` on master builds'
     required: false
     default: ''
   porter_host:
@@ -88,11 +85,6 @@ runs:
         echo "IMAGE_URL_LATEST=ghcr.io/${{ github.repository_owner }}/${REPO}:latest" >> $GITHUB_ENV
         echo "IMAGE_URL_BRANCH=ghcr.io/${{ github.repository_owner }}/${REPO}:${REF}" >> $GITHUB_ENV
 
-    - name: Set App Name
-      if: ${{ inputs.app_name != '' }}
-      shell: bash
-      run: echo "APP_NAME=${{ inputs.app_name }}" >> $GITHUB_ENV
-
     - name: Build and push Docker Image
       uses: docker/build-push-action@v5
       with:
@@ -112,15 +104,15 @@ runs:
         curl -s -o /dev/null -w "%{http_code}" -X GET "${{ inputs.dokploy_url }}"
 
     - name: Setup Porter CLI (master branch only)
-      if: ${{ inputs.porter_app_name != '' && github.ref_name == 'master' }}
+      if: ${{ inputs.app_name != '' && inputs.porter_token != '' && github.ref_name == 'master' }}
       uses: porter-dev/setup-porter@v0.1.0
 
     - name: Deploy App to Porter (master branch only)
-      if: ${{ inputs.porter_app_name != '' && github.ref_name == 'master' }}
+      if: ${{ inputs.app_name != '' && inputs.porter_token != '' && github.ref_name == 'master' }}
       shell: bash
       run: |
         SHA_PREFIX=$(echo "${{ github.sha }}" | cut -c1-7)
-        porter app update-tag "${{ inputs.porter_app_name }}" --tag "$SHA_PREFIX"
+        porter app update-tag "${{ inputs.app_name }}" --tag "$SHA_PREFIX"
       env:
         PORTER_HOST: ${{ inputs.porter_host }}
         PORTER_CLUSTER: ${{ inputs.porter_cluster }}

@@ -25,7 +25,6 @@ jobs:
           checkout_token: ${{ secrets.GH_TOKEN_JS }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           dokploy_url: https://nl.vatfree.com/api/deploy/XXXXXXXX
-          porter_app_name: my-app
           porter_cluster: '2752'
           porter_project: '7505'
           porter_token: ${{ secrets.PORTER_STACK_7505_2752 }}
@@ -35,7 +34,7 @@ jobs:
 
 | Input                  | Description                                                                | Required | Default                          |
 | ---------------------- | -------------------------------------------------------------------------- | -------- | -------------------------------- |
-| `app_name`             | App name; exported as `APP_NAME` env var for downstream steps              | No       | `''`                             |
+| `app_name`             | App name used as the image label and as the Porter app to update on master. Required only when `porter_token` is set. | No | `''`                             |
 | `dockerfile_path`      | Path to the Dockerfile relative to the build context                       | No       | `./Dockerfile`                   |
 | `context`              | Docker build context                                                       | No       | `.`                              |
 | `platforms`            | Comma-separated target platforms                                           | No       | `linux/amd64,linux/arm64/v8`     |
@@ -44,11 +43,10 @@ jobs:
 | `publish_package_token`| Build arg forwarded as `PUBLISH_PACKAGE_TOKEN` for private npm installs    | No       | `''`                             |
 | `extra_build_args`     | Additional multiline build args forwarded to `docker build`                | No       | `''`                             |
 | `dokploy_url`          | If set, GET this URL on `staging` builds to trigger a Dokploy redeploy    | No       | `''`                             |
-| `porter_app_name`      | If set, runs `porter app update-tag <name>` on `master` builds             | No       | `''`                             |
 | `porter_host`          | Porter host URL                                                            | No       | `https://dashboard.porter.run`   |
 | `porter_cluster`       | Porter cluster ID                                                           | No       | `''`                             |
 | `porter_project`       | Porter project ID                                                           | No       | `''`                             |
-| `porter_token`         | Porter auth token                                                           | No       | `''`                             |
+| `porter_token`         | Porter auth token. When set, the Porter deploy runs on `master`; otherwise it's skipped | No | `''`                             |
 
 ## Image tags
 
