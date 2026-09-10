@@ -58,6 +58,7 @@ For monorepos with multiple images, set `tree_subdir` per image so unrelated cha
 | `tree_subdir`          | Subdirectory whose git tree hash is used to skip rebuilds (default: full repo). Use this in monorepos to scope the cache to the relevant subdirectory. | No | `.`                              |
 | `skip_if_unchanged`    | If `"true"`, skip the build when the tree-hash tag already exists in GHCR and re-tag the existing image with the current sha/branch tags instead. If `"false"`, always build. | No | `true`                            |
 | `force_build`          | If `"true"`, always build and push, ignoring the tree-hash cache check      | No       | `false`                          |
+| `ghcr_image_name`      | Override the GHCR image name (default: `github.event.repository.name`, lowercased). Use this when one repo builds multiple distinct images that should publish to separate GHCR packages. | No | `''`                             |
 | `dokploy_url`          | If set, GET this URL on `staging` builds to trigger a Dokploy redeploy    | No       | `''`                             |
 | `porter_host`          | Porter host URL                                                            | No       | `https://dashboard.porter.run`   |
 | `porter_cluster`       | Porter cluster ID                                                           | No       | `''`                             |

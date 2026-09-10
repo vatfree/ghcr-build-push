@@ -47,6 +47,10 @@ inputs:
     description: 'If "true", always build and push, ignoring the tree-hash cache check'
     required: false
     default: 'false'
+  ghcr_image_name:
+    description: 'Override the GHCR image name (default: github.event.repository.name, lowercased). Use this when one repo builds multiple distinct images that should publish to separate GHCR packages (e.g. api-gateway and api-gateway-auth).'
+    required: false
+    default: ''
   dokploy_url:
     description: 'If set, a GET request to this URL is fired on staging builds to trigger a Dokploy redeploy'
     required: false
@@ -91,7 +95,11 @@ runs:
       id: preset
       shell: bash
       run: |
-        REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+        if [ -n "${{ inputs.ghcr_image_name }}" ]; then
+          REPO=$(echo "${{ inputs.ghcr_image_name }}" | tr '[:upper:]' '[:lower:]')
+        else
+          REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+        fi
         SHA_PREFIX=$(echo "${{ github.sha }}" | cut -c1-7)
         REF=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]')
         TREE_REF="${{ inputs.tree_subdir }}"
