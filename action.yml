@@ -35,6 +35,18 @@ inputs:
     description: 'Additional multiline build-args to forward to docker build'
     required: false
     default: ''
+  tree_subdir:
+    description: 'Subdirectory whose git tree hash is used to skip rebuilds when source is unchanged (default: full repo)'
+    required: false
+    default: '.'
+  skip_if_unchanged:
+    description: 'If "true", skip the build when the tree-hash tag already exists in GHCR and re-tag the existing image with the current sha/branch tags instead. If "false", always build.'
+    required: false
+    default: 'true'
+  force_build:
+    description: 'If "true", always build and push, ignoring the tree-hash cache check'
+    required: false
+    default: 'false'
   dokploy_url:
     description: 'If set, a GET request to this URL is fired on staging builds to trigger a Dokploy redeploy'
     required: false
@@ -76,26 +88,87 @@ runs:
         password: ${{ inputs.github_token }}
 
     - name: Preset Image Name
+      id: preset
       shell: bash
       run: |
         REPO=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
         SHA_PREFIX=$(echo "${{ github.sha }}" | cut -c1-7)
         REF=$(echo "${{ github.ref_name }}" | tr '[:upper:]' '[:lower:]')
+        TREE_REF="${{ inputs.tree_subdir }}"
+        # git rev-parse refuses a tree ref for the repo root, so handle the default explicitly
+        if [ -z "${TREE_REF}" ] || [ "${TREE_REF}" = "." ]; then
+          TREE_HASH=$(git rev-parse HEAD^{tree} | cut -c1-12)
+        else
+          TREE_HASH=$(git rev-parse "HEAD:${TREE_REF}" | cut -c1-12)
+        fi
         echo "IMAGE_URL=ghcr.io/${{ github.repository_owner }}/${REPO}:${SHA_PREFIX}" >> $GITHUB_ENV
+        echo "IMAGE_URL_TREE=ghcr.io/${{ github.repository_owner }}/${REPO}:${TREE_HASH}" >> $GITHUB_ENV
         echo "IMAGE_URL_LATEST=ghcr.io/${{ github.repository_owner }}/${REPO}:latest" >> $GITHUB_ENV
         echo "IMAGE_URL_BRANCH=ghcr.io/${{ github.repository_owner }}/${REPO}:${REF}" >> $GITHUB_ENV
+        echo "TREE_HASH=${TREE_HASH}" >> $GITHUB_ENV
+        echo "::notice::Tree hash: ${TREE_HASH}"
+
+    - name: Check if image already exists for this tree hash
+      id: check-image
+      shell: bash
+      run: |
+        IMAGE_URL_TREE="${{ env.IMAGE_URL_TREE }}"
+        if [ "${{ inputs.force_build }}" = "true" ]; then
+          echo "force_build=true — skipping cache check"
+          echo "should_build=true" >> $GITHUB_OUTPUT
+          echo "was_built=true" >> $GITHUB_OUTPUT
+        elif [ "${{ inputs.skip_if_unchanged }}" != "true" ]; then
+          echo "skip_if_unchanged=false — always build"
+          echo "should_build=true" >> $GITHUB_OUTPUT
+          echo "was_built=true" >> $GITHUB_OUTPUT
+        elif docker buildx imagetools inspect "${IMAGE_URL_TREE}" > /dev/null 2>&1; then
+          echo "Reusing existing image: ${IMAGE_URL_TREE}"
+          echo "should_build=false" >> $GITHUB_OUTPUT
+          echo "was_built=false" >> $GITHUB_OUTPUT
+        else
+          echo "No existing image for ${IMAGE_URL_TREE} — building"
+          echo "should_build=true" >> $GITHUB_OUTPUT
+          echo "was_built=true" >> $GITHUB_OUTPUT
+        fi
 
     - name: Build and push Docker Image
+      if: steps.check-image.outputs.should_build == 'true'
       uses: docker/build-push-action@v5
       with:
         context: ${{ inputs.context }}
         file: ${{ inputs.dockerfile_path }}
         push: true
-        tags: ${{ env.IMAGE_URL }},${{ env.IMAGE_URL_LATEST }},${{ env.IMAGE_URL_BRANCH }}
+        tags: ${{ env.IMAGE_URL }},${{ env.IMAGE_URL_TREE }},${{ env.IMAGE_URL_LATEST }},${{ env.IMAGE_URL_BRANCH }}
         platforms: ${{ inputs.platforms }}
         build-args: |
           PUBLISH_PACKAGE_TOKEN=${{ inputs.publish_package_token }}
           ${{ inputs.extra_build_args }}
+
+    - name: Re-tag existing image with current sha/branch tags
+      if: steps.check-image.outputs.should_build == 'false'
+      shell: bash
+      run: |
+        SOURCE="${{ env.IMAGE_URL_TREE }}"
+        TARGETS="${{ env.IMAGE_URL }},${{ env.IMAGE_URL_LATEST }},${{ env.IMAGE_URL_BRANCH }}"
+        IFS=',' read -ra TARGET_ARR <<< "$TARGETS"
+        ARGS=()
+        for t in "${TARGET_ARR[@]}"; do
+          t_trimmed=$(echo "$t" | xargs)
+          [ -n "$t_trimmed" ] && ARGS+=("--tag" "$t_trimmed")
+        done
+        echo "Re-tagging ${SOURCE} with ${TARGETS}"
+        docker buildx imagetools create "${ARGS[@]}" "$SOURCE"
+
+    - name: Summary
+      if: always()
+      shell: bash
+      run: |
+        echo "## GHCR Build and Push" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Primary tag (sha)**: \`${{ env.IMAGE_URL }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Tree-hash tag**: \`${{ env.IMAGE_URL_TREE }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch tag**: \`${{ env.IMAGE_URL_BRANCH }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Built**: \`${{ steps.check-image.outputs.was_built }}\`" >> $GITHUB_STEP_SUMMARY
 
     - name: Deploy App to Dokploy (staging branch only)
       if: ${{ inputs.dokploy_url != '' && github.ref_name == 'staging' }}
